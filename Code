@@ -1,0 +1,122 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import requests
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
+# API key
+API_KEY = "60dc19556425463e9f429340a5d162be"
+
+# ---------------- Get Recipe Info ----------------
+def get_recipe():
+    global current_recipe  # Store latest recipe data
+    food_name = entry_food.get().strip()
+    if not food_name:
+        messagebox.showwarning("Input Error", "Please enter a food name.")
+        return
+
+    # Step 1: Search recipe by name
+    search_url = f"https://api.spoonacular.com/recipes/complexSearch"
+    params = {"apiKey": API_KEY, "query": food_name, "number": 1}
+    search_res = requests.get(search_url, params=params)
+
+    if search_res.status_code != 200 or not search_res.json().get('results'):
+        messagebox.showerror("Error", "Recipe not found or API error.")
+        return
+
+    recipe_id = search_res.json()['results'][0]['id']
+
+    # Step 2: Get full recipe info
+    info_url = f"https://api.spoonacular.com/recipes/{recipe_id}/information"
+    info_res = requests.get(info_url, params={"apiKey": API_KEY})
+    info = info_res.json()
+
+    # Store for PDF saving
+    current_recipe = {
+        "title": info['title'],
+        "ingredients": [i['original'] for i in info['extendedIngredients']],
+        "instructions": info.get('instructions') or "No instructions available."
+    }
+
+    # Display in Text
+    result_text.delete(1.0, tk.END)
+    result_text.insert(tk.END, f"🍽️ {current_recipe['title']}\n\n")
+    result_text.insert(tk.END, "📝 Ingredients:\n")
+    for ing in current_recipe['ingredients']:
+        result_text.insert(tk.END, f" - {ing}\n")
+    result_text.insert(tk.END, "\n📋 Instructions:\n")
+    result_text.insert(tk.END, current_recipe['instructions'])
+
+# ---------------- Save to PDF ----------------
+def save_as_pdf():
+    if not current_recipe:
+        messagebox.showwarning("No Recipe", "Search a recipe first.")
+        return
+
+    file_path = filedialog.asksaveasfilename(defaultextension=".pdf",
+                                             filetypes=[("PDF files", "*.pdf")],
+                                             title="Save Recipe as PDF")
+    if not file_path:
+        return
+
+    try:
+        c = canvas.Canvas(file_path, pagesize=letter)
+        width, height = letter
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, height - 50, current_recipe["title"])
+
+        c.setFont("Helvetica", 12)
+        y = height - 80
+        c.drawString(50, y, "Ingredients:")
+        y -= 20
+        for ing in current_recipe["ingredients"]:
+            c.drawString(60, y, f"- {ing}")
+            y -= 15
+            if y < 80:
+                c.showPage()
+                y = height - 50
+
+        y -= 10
+        c.drawString(50, y, "Instructions:")
+        y -= 20
+        for line in current_recipe["instructions"].splitlines():
+            c.drawString(60, y, line.strip())
+            y -= 15
+            if y < 80:
+                c.showPage()
+                y = height - 50
+
+        c.save()
+        messagebox.showinfo("Success", "Recipe saved as PDF!")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+
+# ---------------- GUI Setup ----------------
+root = tk.Tk()
+root.title("Recipe Finder 🍜")
+root.geometry("650x550")
+root.configure(bg="#f0f0f0")
+
+current_recipe = {}  # To store latest recipe details
+
+tk.Label(root, text="Enter Food Name to Get Recipe", font=("Helvetica", 16, "bold"), bg="#f0f0f0").pack(pady=10)
+
+frame = tk.Frame(root, bg="#f0f0f0")
+frame.pack(pady=5)
+entry_food = tk.Entry(frame, width=40, font=("Helvetica", 12))
+entry_food.pack(side=tk.LEFT, padx=10)
+ttk.Button(frame, text="Search", command=get_recipe).pack(side=tk.LEFT)
+ttk.Button(frame, text="💾 Save as PDF", command=save_as_pdf).pack(side=tk.LEFT, padx=10)
+
+# Result Area
+result_frame = tk.Frame(root)
+result_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+scrollbar = tk.Scrollbar(result_frame)
+scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+result_text = tk.Text(result_frame, wrap=tk.WORD, yscrollcommand=scrollbar.set, font=("Courier", 10))
+result_text.pack(fill=tk.BOTH, expand=True)
+scrollbar.config(command=result_text.yview)
+
+# Run the app
+root.mainloop()
